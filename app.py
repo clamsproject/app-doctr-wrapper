@@ -23,7 +23,7 @@ class DoctrWrapper(ClamsApp):
     def __init__(self):
         super().__init__()
         gpu = True if torch.cuda.is_available() else False
-        self.reader = ocr_predictor(det_arch='db_resnet50', reco_arch='crnn_vgg16_bn', pretrained=True)
+        self.reader = ocr_predictor(det_arch='db_resnet50', reco_arch='crnn_mobilenet_v3_large', pretrained=True)
 
     def _appmetadata(self):
         # see https://sdk.clams.ai/autodoc/clams.app.html#clams.app.ClamsApp._load_appmetadata
