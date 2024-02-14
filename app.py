@@ -22,8 +22,9 @@ class DoctrWrapper(ClamsApp):
 
     def __init__(self):
         super().__init__()
-        gpu = True if torch.cuda.is_available() else False
-        self.reader = ocr_predictor(det_arch='db_resnet50', reco_arch='crnn_vgg16_bn', pretrained=True)
+        self.reader = ocr_predictor(det_arch='db_resnet50', reco_arch='crnn_mobilenet_v3_large',
+                                    pretrained=True, detect_orientation=True, paragraph_break=0.015,
+                                    assume_straight_pages=True).to(torch.device("cuda:0"))
 
     def _appmetadata(self):
         # see https://sdk.clams.ai/autodoc/clams.app.html#clams.app.ClamsApp._load_appmetadata
@@ -41,9 +42,12 @@ class DoctrWrapper(ClamsApp):
 
         for timeframe in input_view.get_annotations(AnnotationTypes.TimeFrame):
             self.logger.debug(timeframe.properties)
-            # get images from time frame
+            representative: AnnotationTypes.TimePoint = (
+                input_view.get_annotation_by_id(timeframe.get("representatives")[0]))
             self.logger.debug("Sampling 1 frame")
-            image: np.ndarray = vdh.extract_mid_frame(mmif, timeframe, as_PIL=False)
+            rep_frame = vdh.convert(representative.get("timePont"), "milliseconds",
+                                    "frame", vdh.get_framerate(video_doc))
+            image: np.ndarray = vdh.extract_frames_as_images(video_doc, [rep_frame], as_PIL=False)[0]
             self.logger.debug("Extracted image")
             self.logger.debug("Running OCR")
             ocrs = []
@@ -54,8 +58,7 @@ class DoctrWrapper(ClamsApp):
                     for word in line.words:
                         ocrs.append((word.geometry, word.value, word.confidence))
             self.logger.debug(ocrs)
-            timepoint = new_view.new_annotation(AnnotationTypes.TimePoint)
-            timepoint.add_property("timePoint", vdh.get_mid_framenum(mmif, timeframe))
+            timepoint = representative
             point_frame = new_view.new_annotation(AnnotationTypes.Alignment)
             point_frame.add_property("source", timeframe.id)
             point_frame.add_property("target", timepoint.id)

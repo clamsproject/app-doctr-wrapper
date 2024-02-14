@@ -4,4 +4,4 @@ mmif-python[cv]==1.0.8
 python-doctr[torch]==0.7.0
 torch
 numpy~=1.24.4
-Pillow==9.5.0
+Pillow==10.0.0
