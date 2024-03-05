@@ -59,9 +59,6 @@ class DoctrWrapper(ClamsApp):
                         ocrs.append((word.geometry, word.value, word.confidence))
             self.logger.debug(ocrs)
             timepoint = representative
-            point_frame = new_view.new_annotation(AnnotationTypes.Alignment)
-            point_frame.add_property("source", timeframe.id)
-            point_frame.add_property("target", timepoint.id)
             for ocr in ocrs:
                 for coord, text, score in ocr:
                     if score > 0.4:

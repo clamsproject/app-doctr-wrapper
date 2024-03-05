@@ -20,8 +20,6 @@ def appmetadata() -> AppMetadata:
     
     :return: AppMetadata object holding all necessary information.
     """
-    
-    # first set up some basic information
     metadata = AppMetadata(
         name="DocTR Wrapper",
         description="End to end OCR for extracting text from timeframes",
@@ -32,13 +30,11 @@ def appmetadata() -> AppMetadata:
         analyzer_license="Apache 2.0",
     )
     metadata.add_input(DocumentTypes.VideoDocument)
+    metadata.add_input(AnnotationTypes.TimeFrame)
     metadata.add_output(DocumentTypes.TextDocument)
     metadata.add_output(AnnotationTypes.Alignment)
     metadata.add_output(AnnotationTypes.BoundingBox)
     metadata.add_output(AnnotationTypes.TimePoint)
-
-    metadata.add_parameter(name='sampleFrames', description='Number of frames to sample from timeframe',
-                           type='integer', default='1')
     
     return metadata
 
