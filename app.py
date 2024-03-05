@@ -41,9 +41,12 @@ class DoctrWrapper(ClamsApp):
 
         for timeframe in input_view.get_annotations(AnnotationTypes.TimeFrame):
             self.logger.debug(timeframe.properties)
-            # get images from time frame
+            representative: AnnotationTypes.TimePoint = (
+                input_view.get_annotation_by_id(timeframe.get("representatives")[0]))
             self.logger.debug("Sampling 1 frame")
-            image: np.ndarray = vdh.extract_mid_frame(mmif, timeframe, as_PIL=False)
+            rep_frame = vdh.convert(representative.get("timePoint"), "milliseconds",
+                                    "frame", vdh.get_framerate(video_doc))
+            image: np.ndarray = vdh.extract_frames_as_images(video_doc, [rep_frame], as_PIL=False)[0]
             self.logger.debug("Extracted image")
             self.logger.debug("Running OCR")
             ocrs = []

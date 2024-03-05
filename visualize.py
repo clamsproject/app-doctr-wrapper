@@ -39,12 +39,20 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('image', type=str, help='Path to image')
     args = parser.parse_args()
-    image = DocumentFile.from_images(args.image)
-    document = np.asarray(Image.open(args.image))
+    path = args.image
+    image_name = path.rsplit('/', 1)[-1]
+    image = DocumentFile.from_images(path)
+    document = np.asarray(Image.open(path))
     ocr = OCR(image)
-    with open('ocr_results.json', 'w') as file:
+    all_text = ''
+    for block in ocr.results.pages[0].blocks:
+        for line in block.lines:
+            for word in line.words:
+                all_text += word.value + ' '
+    with open(f'{image_name}.json', 'w') as file:
         json.dump(ocr.results.export(), file)
-    cv.imwrite('ocr_draw.jpg', draw(ocr.results, document))
+    with open(f'{image_name}.txt', 'w') as file:
+        file.write(all_text)
+    cv.imwrite(f'{image_name}-draw.jpg', draw(ocr.results, document))
     ocr_viz = visualize_page(ocr.results.pages[0].export(), document, words_only=False)
-    plt.savefig("ocr_visualizer.png")
-
+    plt.savefig(f"{image_name}.png")
