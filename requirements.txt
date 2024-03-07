@@ -2,6 +2,7 @@
 clams-python==1.0.9
 mmif-python[cv]==1.0.8
 python-doctr[torch]==0.7.0
-torch
+torch~=2.1.2
 numpy~=1.24.4
-Pillow==10.0.0
+Pillow==10.2.0
+lapps~=0.0.2
