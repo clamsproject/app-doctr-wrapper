@@ -52,7 +52,7 @@ class DoctrWrapper(ClamsApp):
         """
         lapps annotation corresponding to a DocTR Block object targeting contained sentences.
         """
-        def __init__(self, region: Uri.PARAGRAPH, document: Document):
+        def __init__(self, region: Annotation, document: Document):
             self.region = region
             self.region.add_property("document", document.id)
             self.sentences = []
@@ -61,13 +61,13 @@ class DoctrWrapper(ClamsApp):
             self.sentences.append(sentence)
 
         def collect_targets(self):
-            self.region.add_property("targets", [s.span.id for s in self.sentences])
+            self.region.add_property("targets", [s.region.id for s in self.sentences])
 
     class Sentence:
         """
         Span annotation corresponding to a DocTR Line object targeting contained tokens.
         """
-        def __init__(self, region: Uri.SENTENCE, document: Document):
+        def __init__(self, region: Annotation, document: Document):
             self.region = region
             self.region.add_property("document", document.id)
             self.tokens = []
@@ -76,18 +76,70 @@ class DoctrWrapper(ClamsApp):
             self.tokens.append(token)
 
         def collect_targets(self):
-            self.region.add_property("targets", [t.span.id for t in self.tokens])
+            self.region.add_property("targets", [t.region.id for t in self.tokens])
 
     class Token:
         """
         Span annotation corresponding to a DocTR Word object. Start and end are character offsets in the text document.
         """
-        def __init__(self, region: Uri.TOKEN, document: Document, start: int, end: int):
+        def __init__(self, region: Annotation, document: Document, start: int, end: int):
             self.region = region
             self.region.add_property("document", document.id)
-            self.region.add_property("start",
-                                     start)  # The starting offset in the primary data. This point is inclusive.
-            self.region.add_property("end", end)  # The ending offset in the primary data. This point is exclusive.
+            self.region.add_property("start", start)
+            self.region.add_property("end", end)
+
+    def process_timeframe(self, timeframe: Annotation, new_view: View, video_doc: Document, input_view: View):
+        representative: AnnotationTypes.TimePoint = input_view.get_annotation_by_id(timeframe.get("representatives")[0])
+        rep_frame_index = vdh.convert(representative.get("timePoint"), "milliseconds",
+                                      "frame", vdh.get_framerate(video_doc))
+        image: np.ndarray = vdh.extract_frames_as_images(video_doc, [rep_frame_index], as_PIL=False)[0]
+        extracted_text = ""
+        result = self.reader([image])
+        blocks = result.pages[0].blocks
+        text_document = new_view.new_textdocument("")
+
+        for block in blocks:
+            try:
+                extracted_text = self.process_block(block, new_view, text_document, representative, extracted_text)
+            except Exception as e:
+                self.logger.error(f"Error processing block: {e}")
+                continue
+
+        return extracted_text, text_document
+
+    def process_block(self, block, view, text_document, representative, extracted_text):
+        paragraph = self.Paragraph(view.new_annotation(at_type=Uri.PARAGRAPH), text_document)
+        paragraph_bb = create_bbox(view, block.geometry, "text", representative.id)
+        create_alignment(view, paragraph.region.id, paragraph_bb.id)
+
+        for line in block.lines:
+            try:
+                sentence, extracted_text = self.process_line(line, view, text_document, representative, extracted_text)
+            except Exception as e:
+                self.logger.error(f"Error processing line: {e}")
+                continue
+            paragraph.add_sentence(sentence)
+
+        paragraph.collect_targets()
+        return extracted_text
+
+    def process_line(self, line, view, text_document, representative, extracted_text):
+        sentence = self.Sentence(view.new_annotation(at_type=Uri.SENTENCE), text_document)
+        sentence_bb = create_bbox(view, line.geometry, "text", representative.id)
+        create_alignment(view, sentence.region.id, sentence_bb.id)
+
+        for word in line.words:
+            if word.confidence > 0.4:
+                start = len(extracted_text)
+                end = start + len(word.value)
+                token = self.Token(view.new_annotation(at_type=Uri.TOKEN), text_document, start, end)
+                token_bb = create_bbox(view, word.geometry, "text", representative.id)
+                create_alignment(view, token.region.id, token_bb.id)
+                sentence.add_token(token)
+                extracted_text += word.value + " "
+
+        sentence.collect_targets()
+        return sentence, extracted_text
 
     def _annotate(self, mmif: Union[str, dict, Mmif], **parameters) -> Mmif:
         self.logger.debug("running app")
@@ -98,45 +150,15 @@ class DoctrWrapper(ClamsApp):
         self.sign_view(new_view, parameters)
 
         for timeframe in input_view.get_annotations(AnnotationTypes.TimeFrame):
-            self.logger.debug(timeframe.properties)
-            representative: AnnotationTypes.TimePoint = (
-                input_view.get_annotation_by_id(timeframe.get("representatives")[0]))
-            self.logger.debug("Sampling 1 frame")
-            rep_frame_index = vdh.convert(representative.get("timePont"), "milliseconds",
-                                    "frame", vdh.get_framerate(video_doc))
-            image: np.ndarray = vdh.extract_frames_as_images(video_doc, [rep_frame_index], as_PIL=False)[0]
-            self.logger.debug("Extracted image")
-            self.logger.debug("Running OCR")
-            extracted_text = ""
-            result = self.reader([image])
-            blocks = result.pages[0].blocks
-            text_document = new_view.new_textdocument("")
-            character_index = 0
-            for block in blocks:
-                paragraph = self.Paragraph(Uri.PARAGRAPH, text_document)
-                paragraph_bb = create_bbox(new_view, block.geometry, "text", representative.id)
-                create_alignment(new_view, paragraph.region.id, paragraph_bb.id)
-                for line in block.lines:
-                    sentence = self.Sentence(Uri.SENTENCE, text_document)
-                    sentence_bb = create_bbox(new_view, line.geometry, "text", representative.id)
-                    create_alignment(new_view, sentence.region.id, sentence_bb.id)
-                    for word in line.words:
-                        if word.confidence > 0.4:
-                            start = character_index
-                            end = start + len(word.value)
-                            character_index = end + 1
-                            token = self.Token(Uri.TOKEN, text_document, start, end)
-                            token_bb = create_bbox(new_view, word.geometry, "text", representative.id)
-                            create_alignment(new_view, token.region.id, token_bb.id)
-                            sentence.add_token(token)
-                            extracted_text += word.value + " "
-                    sentence.collect_targets()  # Creates the targets property for the sentence
-                    paragraph.add_sentence(sentence)
-                paragraph.collect_targets()  # Creates the targets property for the paragraph
-
-            self.logger.debug(extracted_text)
-            text_document.add_property("text", extracted_text)
-            create_alignment(new_view, representative.id, text_document.id)
+            try:
+                extracted_text, text_document = self.process_timeframe(timeframe, new_view, video_doc, input_view)
+                self.logger.debug(extracted_text)
+                text_document.text_value = extracted_text
+                representative: Annotation = input_view.get_annotation_by_id(timeframe.get("representatives")[0])
+                create_alignment(new_view, representative.id, text_document.id)
+            except Exception as e:
+                self.logger.error(f"Error processing timeframe: {e}")
+                continue
 
         return mmif
 
