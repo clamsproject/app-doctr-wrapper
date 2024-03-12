@@ -96,7 +96,7 @@ class DoctrWrapper(ClamsApp):
         extracted_text = ""
         result = self.reader([image])
         blocks = result.pages[0].blocks
-        text_document = new_view.new_textdocument("")
+        text_document = new_view.new_textdocument(result.render())
 
         for block in blocks:
             try:
@@ -130,7 +130,7 @@ class DoctrWrapper(ClamsApp):
 
         for word in line.words:
             if word.confidence > 0.4:
-                start = len(extracted_text)
+                start = text_document.text_value.find(word.value)
                 end = start + len(word.value)
                 token = self.Token(view.new_annotation(at_type=Uri.TOKEN), text_document, start, end)
                 token_bb = create_bbox(view, word.geometry, "text", representative.id)
@@ -153,7 +153,7 @@ class DoctrWrapper(ClamsApp):
             try:
                 extracted_text, text_document = self.process_timeframe(timeframe, new_view, video_doc, input_view)
                 self.logger.debug(extracted_text)
-                text_document.text_value = extracted_text
+                self.logger.debug(text_document.get('text'))
                 representative: Annotation = input_view.get_annotation_by_id(timeframe.get("representatives")[0])
                 create_alignment(new_view, representative.id, text_document.id)
             except Exception as e:
