@@ -41,7 +41,7 @@ class DoctrWrapper(ClamsApp):
     def __init__(self):
         super().__init__()
         self.reader = ocr_predictor(det_arch='db_resnet50', reco_arch='parseq',
-                                    pretrained=True, detect_orientation=True, paragraph_break=0.015,
+                                    pretrained=True, detect_orientation=True, paragraph_break=0.035,
                                     assume_straight_pages=True).to(torch.device("cuda:0"))
 
     def _appmetadata(self):
