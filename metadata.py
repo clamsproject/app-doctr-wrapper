@@ -5,6 +5,7 @@ DO NOT CHANGE the name of the file
 """
 
 from mmif import DocumentTypes, AnnotationTypes
+from lapps.discriminators import Uri
 
 from clams.app import ClamsApp
 from clams.appmetadata import AppMetadata
@@ -32,10 +33,12 @@ def appmetadata() -> AppMetadata:
     metadata.add_input(DocumentTypes.VideoDocument)
     metadata.add_input(AnnotationTypes.TimeFrame)
     metadata.add_output(DocumentTypes.TextDocument)
+    metadata.add_output(Uri.SENTENCE)
+    metadata.add_output(Uri.PARAGRAPH)
+    metadata.add_output(Uri.TOKEN)
     metadata.add_output(AnnotationTypes.Alignment)
     metadata.add_output(AnnotationTypes.BoundingBox)
-    metadata.add_output(AnnotationTypes.TimePoint)
-    
+
     return metadata
 
 
