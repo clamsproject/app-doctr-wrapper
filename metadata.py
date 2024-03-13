@@ -21,12 +21,12 @@ def appmetadata() -> AppMetadata:
     :return: AppMetadata object holding all necessary information.
     """
     metadata = AppMetadata(
-        name="DocTR Wrapper",
+        name="docTR Wrapper",
         description="End to end OCR for extracting text from timeframes",
         app_license="MIT",
         identifier="doctr-wrapper",
         url="https://github.com/clamsproject/app-easyocr-wrapper",
-        analyzer_version='0.7.0',
+        analyzer_version='0.8.1',
         analyzer_license="Apache 2.0",
     )
     metadata.add_input(DocumentTypes.VideoDocument)
