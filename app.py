@@ -94,37 +94,34 @@ class DoctrWrapper(ClamsApp):
         rep_frame_index = vdh.convert(representative.get("timePoint"), "milliseconds",
                                       "frame", vdh.get_framerate(video_doc))
         image: np.ndarray = vdh.extract_frames_as_images(video_doc, [rep_frame_index], as_PIL=False)[0]
-        extracted_text = ""
         result = self.reader([image])
         blocks = result.pages[0].blocks
         text_document: Document = new_view.new_textdocument(result.render())
 
         for block in blocks:
             try:
-                extracted_text = self.process_block(block, new_view, text_document, representative, extracted_text)
+                self.process_block(block, new_view, text_document, representative)
             except Exception as e:
                 self.logger.error(f"Error processing block: {e}")
                 continue
 
-        return extracted_text, text_document, representative
+        return text_document, representative
 
-    def process_block(self, block, view, text_document, representative, extracted_text):
+    def process_block(self, block, view, text_document, representative):
         paragraph = self.Paragraph(view.new_annotation(at_type=Uri.PARAGRAPH), text_document)
         paragraph_bb = create_bbox(view, block.geometry, "text", representative.id)
         create_alignment(view, paragraph.region.id, paragraph_bb.id)
 
         for line in block.lines:
             try:
-                sentence, extracted_text = self.process_line(line, view, text_document, representative, extracted_text)
+                sentence = self.process_line(line, view, text_document, representative)
             except Exception as e:
                 self.logger.error(f"Error processing line: {e}")
                 continue
             paragraph.add_sentence(sentence)
-
         paragraph.collect_targets()
-        return extracted_text
 
-    def process_line(self, line, view, text_document, representative, extracted_text):
+    def process_line(self, line, view, text_document, representative):
         sentence = self.Sentence(view.new_annotation(at_type=Uri.SENTENCE), text_document)
         sentence_bb = create_bbox(view, line.geometry, "text", representative.id)
         create_alignment(view, sentence.region.id, sentence_bb.id)
@@ -137,10 +134,9 @@ class DoctrWrapper(ClamsApp):
                 token_bb = create_bbox(view, word.geometry, "text", representative.id)
                 create_alignment(view, token.region.id, token_bb.id)
                 sentence.add_token(token)
-                extracted_text += word.value + " "
 
         sentence.collect_targets()
-        return sentence, extracted_text
+        return sentence
 
     def _annotate(self, mmif: Union[str, dict, Mmif], **parameters) -> Mmif:
         self.logger.debug("running app")
@@ -161,8 +157,7 @@ class DoctrWrapper(ClamsApp):
 
             for future in futures:
                 try:
-                    extracted_text, text_document, representative = future.result()
-                    self.logger.debug(extracted_text)
+                    text_document, representative = future.result()
                     self.logger.debug(text_document.get('text'))
                     create_alignment(new_view, representative.id, text_document.id)
                 except Exception as e:
