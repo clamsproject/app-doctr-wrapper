@@ -8,6 +8,8 @@ from typing import Union
 
 from lapps.discriminators import Uri
 
+from concurrent.futures import ThreadPoolExecutor
+
 # Imports needed for Clams and MMIF.
 # Non-NLP Clams applications will require AnnotationTypes
 
@@ -88,15 +90,14 @@ class DoctrWrapper(ClamsApp):
             self.region.add_property("start", start)
             self.region.add_property("end", end)
 
-    def process_timeframe(self, timeframe: Annotation, new_view: View, video_doc: Document, input_view: View):
-        representative: AnnotationTypes.TimePoint = input_view.get_annotation_by_id(timeframe.get("representatives")[0])
+    def process_timepoint(self, representative: Annotation, new_view: View, video_doc: Document):
         rep_frame_index = vdh.convert(representative.get("timePoint"), "milliseconds",
                                       "frame", vdh.get_framerate(video_doc))
         image: np.ndarray = vdh.extract_frames_as_images(video_doc, [rep_frame_index], as_PIL=False)[0]
         extracted_text = ""
         result = self.reader([image])
         blocks = result.pages[0].blocks
-        text_document = new_view.new_textdocument(result.render())
+        text_document: Document = new_view.new_textdocument(result.render())
 
         for block in blocks:
             try:
@@ -105,7 +106,7 @@ class DoctrWrapper(ClamsApp):
                 self.logger.error(f"Error processing block: {e}")
                 continue
 
-        return extracted_text, text_document
+        return extracted_text, text_document, representative
 
     def process_block(self, block, view, text_document, representative, extracted_text):
         paragraph = self.Paragraph(view.new_annotation(at_type=Uri.PARAGRAPH), text_document)
@@ -149,16 +150,24 @@ class DoctrWrapper(ClamsApp):
         new_view: View = mmif.new_view()
         self.sign_view(new_view, parameters)
 
-        for timeframe in input_view.get_annotations(AnnotationTypes.TimeFrame):
-            try:
-                extracted_text, text_document = self.process_timeframe(timeframe, new_view, video_doc, input_view)
-                self.logger.debug(extracted_text)
-                self.logger.debug(text_document.get('text'))
-                representative: Annotation = input_view.get_annotation_by_id(timeframe.get("representatives")[0])
-                create_alignment(new_view, representative.id, text_document.id)
-            except Exception as e:
-                self.logger.error(f"Error processing timeframe: {e}")
-                continue
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for timeframe in input_view.get_annotations(AnnotationTypes.TimeFrame):
+                representative_ids = timeframe.get("representatives")
+                representatives = [
+                    input_view.get_annotation_by_id(representative_id) for representative_id in representative_ids]
+                for representative in representatives:
+                    futures.append(executor.submit(self.process_timepoint, representative, new_view, video_doc))
+
+            for future in futures:
+                try:
+                    extracted_text, text_document, representative = future.result()
+                    self.logger.debug(extracted_text)
+                    self.logger.debug(text_document.get('text'))
+                    create_alignment(new_view, representative.id, text_document.id)
+                except Exception as e:
+                    self.logger.error(f"Error processing timeframe: {e}")
+                    continue
 
         return mmif
 
