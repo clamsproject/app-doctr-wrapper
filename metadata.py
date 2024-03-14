@@ -26,16 +26,16 @@ def appmetadata() -> AppMetadata:
         description="End to end OCR for extracting text from timeframes",
         app_license="MIT",
         identifier="doctr-wrapper",
-        url="https://github.com/clamsproject/app-easyocr-wrapper",
+        url="https://github.com/clamsproject/app-doctr-wrapper",
         analyzer_version='0.8.1',
         analyzer_license="Apache 2.0",
     )
     metadata.add_input(DocumentTypes.VideoDocument)
     metadata.add_input(AnnotationTypes.TimeFrame)
     metadata.add_output(DocumentTypes.TextDocument)
-    metadata.add_output(Uri.SENTENCE)
-    metadata.add_output(Uri.PARAGRAPH)
-    metadata.add_output(Uri.TOKEN)
+    metadata.add_output(at_type=Uri.SENTENCE)
+    metadata.add_output(at_type=Uri.PARAGRAPH)
+    metadata.add_output(at_type=Uri.TOKEN)
     metadata.add_output(AnnotationTypes.Alignment)
     metadata.add_output(AnnotationTypes.BoundingBox)
 
