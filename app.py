@@ -42,7 +42,12 @@ class DoctrWrapper(ClamsApp):
         super().__init__()
         self.reader = ocr_predictor(det_arch='db_resnet50', reco_arch='parseq',
                                     pretrained=True, detect_orientation=True, paragraph_break=0.035,
-                                    assume_straight_pages=True).to(torch.device("cuda:0"))
+                                    assume_straight_pages=True)
+        if torch.cuda.is_available():
+            self.gpu = True
+            self.reader = self.reader.cuda().half()
+        else:
+            self.gpu = False
 
     def _appmetadata(self):
         # see https://sdk.clams.ai/autodoc/clams.app.html#clams.app.ClamsApp._load_appmetadata
@@ -139,7 +144,10 @@ class DoctrWrapper(ClamsApp):
         return sentence
 
     def _annotate(self, mmif: Union[str, dict, Mmif], **parameters) -> Mmif:
-        self.logger.debug("running app")
+        if self.gpu:
+            self.logger.debug("running app on GPU")
+        else:
+            self.logger.debug("running app on CPU")
         video_doc: Document = mmif.get_documents_by_type(DocumentTypes.VideoDocument)[0]
         input_view: View = mmif.get_views_for_document(video_doc.properties.id)[0]
 
