@@ -25,7 +25,7 @@ import numpy as np
 def create_bbox(view: View, coordinates, box_type, time_point):
     bbox = view.new_annotation(AnnotationTypes.BoundingBox)
     bbox.add_property("coordinates", coordinates)
-    bbox.add_property("boxType", box_type)
+    bbox.add_property("label", box_type)
     bbox.add_property("timePoint", time_point)
     return bbox
 

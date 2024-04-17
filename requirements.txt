@@ -1,8 +1,8 @@
 # Make sure clams-python version is explicitly specified, at least the lower bound
-clams-python==1.1.3
-mmif-python[cv]==1.0.10
-python-doctr[torch]==0.7.0
-torch~=2.1.2
-numpy~=1.24.4
-Pillow==10.2.0
-lapps~=0.0.2
+clams-python==1.2.0
+mmif-python[cv]
+python-doctr[torch]>=0.7.0
+torch>=2.*
+numpy
+Pillow
+lapps
