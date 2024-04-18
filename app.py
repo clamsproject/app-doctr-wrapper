@@ -4,22 +4,19 @@ wrapper for DocTR end to end OCR
 
 import argparse
 import logging
-from typing import Union
-
-from lapps.discriminators import Uri
-
 from concurrent.futures import ThreadPoolExecutor
 
-# Imports needed for Clams and MMIF.
-# Non-NLP Clams applications will require AnnotationTypes
-
+import numpy as np
+import torch
 from clams import ClamsApp, Restifier
+from doctr.models import ocr_predictor
+from lapps.discriminators import Uri
 from mmif import Mmif, View, Annotation, Document, AnnotationTypes, DocumentTypes
 from mmif.utils import video_document_helper as vdh
 
-from doctr.models import ocr_predictor
-import torch
-import numpy as np
+
+# Imports needed for Clams and MMIF.
+# Non-NLP Clams applications will require AnnotationTypes
 
 
 def create_bbox(view: View, coordinates, box_type, time_point):
@@ -50,40 +47,24 @@ class DoctrWrapper(ClamsApp):
             self.gpu = False
 
     def _appmetadata(self):
-        # see https://sdk.clams.ai/autodoc/clams.app.html#clams.app.ClamsApp._load_appmetadata
-        # Also check out ``metadata.py`` in this directory. 
-        # When using the ``metadata.py`` leave this do-nothing "pass" method here. 
+        # using metadata.py
         pass
-
-    class Paragraph:
+    
+    class LingUnit(object):
         """
-        lapps annotation corresponding to a DocTR Block object targeting contained sentences.
-        """
-        def __init__(self, region: Annotation, document: Document):
-            self.region = region
-            self.region.add_property("document", document.id)
-            self.sentences = []
-
-        def add_sentence(self, sentence):
-            self.sentences.append(sentence)
-
-        def collect_targets(self):
-            self.region.add_property("targets", [s.region.id for s in self.sentences])
-
-    class Sentence:
-        """
-        Span annotation corresponding to a DocTR Line object targeting contained tokens.
+        A thin wrapper for LAPPS linguistic unit annotations that 
+        represent different geometric levels from DocTR OCR output.
         """
         def __init__(self, region: Annotation, document: Document):
             self.region = region
             self.region.add_property("document", document.id)
-            self.tokens = []
+            self.children = []
 
-        def add_token(self, token):
-            self.tokens.append(token)
+        def add_child(self, sentence):
+            self.children.append(sentence)
 
         def collect_targets(self):
-            self.region.add_property("targets", [t.region.id for t in self.tokens])
+            self.region.add_property("targets", [child.region.id for child in self.children])
 
     class Token:
         """
@@ -96,8 +77,9 @@ class DoctrWrapper(ClamsApp):
             self.region.add_property("end", end)
 
     def process_timepoint(self, representative: Annotation, new_view: View, video_doc: Document):
-        rep_frame_index = vdh.convert(representative.get("timePoint"), "milliseconds",
-                                      "frame", vdh.get_framerate(video_doc))
+        rep_frame_index = vdh.convert(representative.get("timePoint"), 
+                                      representative.get("timeUnit"), "frame", 
+                                      video_doc.get("fps"))
         image: np.ndarray = vdh.extract_frames_as_images(video_doc, [rep_frame_index], as_PIL=False)[0]
         result = self.reader([image])
         blocks = result.pages[0].blocks
@@ -113,7 +95,7 @@ class DoctrWrapper(ClamsApp):
         return text_document, representative
 
     def process_block(self, block, view, text_document, representative):
-        paragraph = self.Paragraph(view.new_annotation(at_type=Uri.PARAGRAPH), text_document)
+        paragraph = self.LingUnit(view.new_annotation(at_type=Uri.PARAGRAPH), text_document)
         paragraph_bb = create_bbox(view, block.geometry, "text", representative.id)
         create_alignment(view, paragraph.region.id, paragraph_bb.id)
 
@@ -123,11 +105,11 @@ class DoctrWrapper(ClamsApp):
             except Exception as e:
                 self.logger.error(f"Error processing line: {e}")
                 continue
-            paragraph.add_sentence(sentence)
+            paragraph.add_child(sentence)
         paragraph.collect_targets()
 
     def process_line(self, line, view, text_document, representative):
-        sentence = self.Sentence(view.new_annotation(at_type=Uri.SENTENCE), text_document)
+        sentence = self.LingUnit(view.new_annotation(at_type=Uri.SENTENCE), text_document)
         sentence_bb = create_bbox(view, line.geometry, "text", representative.id)
         create_alignment(view, sentence.region.id, sentence_bb.id)
 
@@ -138,18 +120,18 @@ class DoctrWrapper(ClamsApp):
                 token = self.Token(view.new_annotation(at_type=Uri.TOKEN), text_document, start, end)
                 token_bb = create_bbox(view, word.geometry, "text", representative.id)
                 create_alignment(view, token.region.id, token_bb.id)
-                sentence.add_token(token)
+                sentence.add_child(token)
 
         sentence.collect_targets()
         return sentence
 
-    def _annotate(self, mmif: Union[str, dict, Mmif], **parameters) -> Mmif:
+    def _annotate(self, mmif: Mmif, **parameters) -> Mmif:
         if self.gpu:
             self.logger.debug("running app on GPU")
         else:
             self.logger.debug("running app on CPU")
         video_doc: Document = mmif.get_documents_by_type(DocumentTypes.VideoDocument)[0]
-        input_view: View = mmif.get_views_for_document(video_doc.properties.id)[0]
+        input_view: View = mmif.get_views_for_document(video_doc.properties.id)[-1]
 
         new_view: View = mmif.new_view()
         self.sign_view(new_view, parameters)
@@ -157,10 +139,10 @@ class DoctrWrapper(ClamsApp):
         with ThreadPoolExecutor() as executor:
             futures = []
             for timeframe in input_view.get_annotations(AnnotationTypes.TimeFrame):
-                representative_ids = timeframe.get("representatives")
-                representatives = [
-                    input_view.get_annotation_by_id(representative_id) for representative_id in representative_ids]
-                for representative in representatives:
+                for rep_id in timeframe.get("representatives"):
+                    if Mmif.id_delimiter not in rep_id:
+                        rep_id = f'{input_view.id}{Mmif.id_delimiter}{rep_id}'
+                    representative = mmif[rep_id]
                     futures.append(executor.submit(self.process_timepoint, representative, new_view, video_doc))
 
             for future in futures:
