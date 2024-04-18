@@ -5,6 +5,7 @@ wrapper for DocTR end to end OCR
 import argparse
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from math import floor, ceil
 
 import numpy as np
 import torch
@@ -18,6 +19,17 @@ from mmif.utils import video_document_helper as vdh
 # Imports needed for Clams and MMIF.
 # Non-NLP Clams applications will require AnnotationTypes
 
+
+def rel_coords_to_abs(coords, width, height):
+    """
+    Simple conversion from relative coordinates (percentage) to absolute coordinates (pixel). 
+    Assumes the passed shape is a rectangle, represented by top-left and bottom-right corners, 
+    and compute floor and ceiling based on the geometry.
+    """
+    x1, y1 = coords[0]
+    x2, y2 = coords[1]
+    return [(floor(x1 * height), floor(y1 * width)), (ceil(x2 * height), ceil(y2 * width))]
+    
 
 def create_bbox(view: View, coordinates, box_type, time_point):
     bbox = view.new_annotation(AnnotationTypes.BoundingBox)
@@ -82,35 +94,37 @@ class DoctrWrapper(ClamsApp):
                                       video_doc.get("fps"))
         image: np.ndarray = vdh.extract_frames_as_images(video_doc, [rep_frame_index], as_PIL=False)[0]
         result = self.reader([image])
+        # assume only one page, as we are passing one image at a time
         blocks = result.pages[0].blocks
         text_document: Document = new_view.new_textdocument(result.render())
 
+        h, w = image.shape[:2]
         for block in blocks:
             try:
-                self.process_block(block, new_view, text_document, representative)
+                self.process_block(block, new_view, text_document, representative, w, h)
             except Exception as e:
                 self.logger.error(f"Error processing block: {e}")
                 continue
 
         return text_document, representative
 
-    def process_block(self, block, view, text_document, representative):
+    def process_block(self, block, view, text_document, representative, img_width, img_height):
         paragraph = self.LingUnit(view.new_annotation(at_type=Uri.PARAGRAPH), text_document)
-        paragraph_bb = create_bbox(view, block.geometry, "text", representative.id)
+        paragraph_bb = create_bbox(view, rel_coords_to_abs(block.geometry, img_width, img_height), "text", representative.id)
         create_alignment(view, paragraph.region.id, paragraph_bb.id)
 
         for line in block.lines:
             try:
-                sentence = self.process_line(line, view, text_document, representative)
+                sentence = self.process_line(line, view, text_document, representative, img_width, img_height)
             except Exception as e:
                 self.logger.error(f"Error processing line: {e}")
                 continue
             paragraph.add_child(sentence)
         paragraph.collect_targets()
 
-    def process_line(self, line, view, text_document, representative):
+    def process_line(self, line, view, text_document, representative, img_width, img_height):
         sentence = self.LingUnit(view.new_annotation(at_type=Uri.SENTENCE), text_document)
-        sentence_bb = create_bbox(view, line.geometry, "text", representative.id)
+        sentence_bb = create_bbox(view, rel_coords_to_abs(line.geometry, img_width, img_height), "text", representative.id)
         create_alignment(view, sentence.region.id, sentence_bb.id)
 
         for word in line.words:
@@ -118,7 +132,7 @@ class DoctrWrapper(ClamsApp):
                 start = text_document.text_value.find(word.value)
                 end = start + len(word.value)
                 token = self.Token(view.new_annotation(at_type=Uri.TOKEN), text_document, start, end)
-                token_bb = create_bbox(view, word.geometry, "text", representative.id)
+                token_bb = create_bbox(view, rel_coords_to_abs(word.geometry, img_width, img_height), "text", representative.id)
                 create_alignment(view, token.region.id, token_bb.id)
                 sentence.add_child(token)
 
@@ -144,6 +158,9 @@ class DoctrWrapper(ClamsApp):
                         rep_id = f'{input_view.id}{Mmif.id_delimiter}{rep_id}'
                     representative = mmif[rep_id]
                     futures.append(executor.submit(self.process_timepoint, representative, new_view, video_doc))
+                if len(futures) == 0:
+                    # TODO (krim @ 4/18/24): if "representatives" is not present, process just the middle frame
+                    pass
 
             for future in futures:
                 try:
