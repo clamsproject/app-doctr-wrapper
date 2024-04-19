@@ -22,9 +22,17 @@ class DoctrWrapper(ClamsApp):
 
     def __init__(self):
         super().__init__()
+        # default docTR configs: 
+        # det_arch='db_resnet50' (keeping it)
+        # reco_arch='crnn_vgg16_bn', 
+        # pretrained=False, 
+        # paragraph_break=0.035, (keeping it)
+        # assume_straight_pages=True
+        # detect_orientation=False, 
         self.reader = ocr_predictor(det_arch='db_resnet50', reco_arch='parseq',
-                                    pretrained=True, detect_orientation=True, paragraph_break=0.035,
-                                    assume_straight_pages=True)
+                                    pretrained=True, 
+                                    paragraph_break=0.035,
+                                    assume_straight_pages=False, detect_orientation=True)
         if torch.cuda.is_available():
             self.gpu = True
             self.reader = self.reader.cuda().half()
