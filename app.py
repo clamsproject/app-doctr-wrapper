@@ -62,17 +62,27 @@ class DoctrWrapper(ClamsApp):
         new_view.new_annotation(AnnotationTypes.Alignment, source=timepoint_ann.id, target=bbox_ann.id)
         new_view.new_annotation(AnnotationTypes.Alignment, source=text_ann.id, target=bbox_ann.id)
 
-    def process_timepoint(self, representative: Annotation, new_view: View, video_doc: Document):
-        rep_frame_index = vdh.convert(representative.get("timePoint"),
-                                      representative.get("timeUnit"), "frame", 
-                                      video_doc.get("fps"))
-        image: np.ndarray = vdh.extract_frames_as_images(video_doc, [rep_frame_index], as_PIL=False)[0]
+    def process_time_annotation(self, mmif: Mmif, representative: Annotation, new_view: View, video_doc: Document):
+        if representative.at_type == AnnotationTypes.TimePoint:
+            rep_frame_index = vdh.convert(representative.get("timePoint"),
+                                          representative.get("timeUnit"), "frame", 
+                                          video_doc.get("fps"))
+            image: np.ndarray = vdh.extract_frames_as_images(video_doc, [rep_frame_index], as_PIL=False)[0]
+            timestamp = vdh.convert(representative.get("timePoint"),
+                                    representative.get("timeUnit"), "ms", video_doc.get("fps"))
+        elif representative.at_type == AnnotationTypes.TimeFrame:
+            image: np.ndarray = vdh.extract_mid_frame(mmif, representative, as_PIL=False)
+            timestamp = vdh.convert(vdh.get_mid_framenum(mmif, representative), 
+                                    'f', 'ms', video_doc.get("fps"))
+        else:
+            self.logger.error(f"Representative annotation type {representative.at_type} is not supported.")
+            return -1, None
         h, w = image.shape[:2]
         result = self.reader([image])
         # assume only one page, as we are passing one image at a time
         text_content = result.render()
         if not text_content:
-            return representative.get('timePoint'), None
+            return timestamp, None
         text_document: Document = new_view.new_textdocument(result.render())
         td_id = text_document.id
         new_view.new_annotation(AnnotationTypes.Alignment, source=representative.id, target=td_id)
@@ -98,7 +108,7 @@ class DoctrWrapper(ClamsApp):
                 sent_ann.add_property("targets", target_tokens)
             para_ann.add_property("targets", target_sents)
 
-        return representative.get('timePoint'), text_content
+        return timestamp, text_content
 
     def _annotate(self, mmif: Mmif, **parameters) -> Mmif:
         if self.gpu:
@@ -124,14 +134,15 @@ class DoctrWrapper(ClamsApp):
                     if Mmif.id_delimiter not in rep_id:
                         rep_id = f'{input_view.id}{Mmif.id_delimiter}{rep_id}'
                     representative = mmif[rep_id]
-                    futures.append(executor.submit(self.process_timepoint, representative, new_view, video_doc))
+                    futures.append(executor.submit(self.process_time_annotation, mmif, representative, new_view, video_doc))
                 if len(futures) == 0:
-                    # TODO (krim @ 4/18/24): if "representatives" is not present, process just the middle frame
+                    # meaning "representatives" was not present, so alternatively, just process the middle frame
+                    futures.append(executor.submit(self.process_time_annotation, mmif, timeframe, new_view, video_doc))
                     pass
 
             for future in futures:
-                timestemp, text_content = future.result()
-                self.logger.debug(f'Processed timepoint: {timestemp}, recognized text: "{json.dumps(text_content)}"')
+                timestamp, text_content = future.result()
+                self.logger.debug(f'Processed timepoint: {timestamp} ms, recognized text: "{json.dumps(text_content)}"')
 
         return mmif
 
