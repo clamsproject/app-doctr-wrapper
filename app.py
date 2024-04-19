@@ -3,9 +3,11 @@ wrapper for DocTR end to end OCR
 """
 
 import argparse
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from math import floor, ceil
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -14,35 +16,6 @@ from doctr.models import ocr_predictor
 from lapps.discriminators import Uri
 from mmif import Mmif, View, Annotation, Document, AnnotationTypes, DocumentTypes
 from mmif.utils import video_document_helper as vdh
-
-
-# Imports needed for Clams and MMIF.
-# Non-NLP Clams applications will require AnnotationTypes
-
-
-def rel_coords_to_abs(coords, width, height):
-    """
-    Simple conversion from relative coordinates (percentage) to absolute coordinates (pixel). 
-    Assumes the passed shape is a rectangle, represented by top-left and bottom-right corners, 
-    and compute floor and ceiling based on the geometry.
-    """
-    x1, y1 = coords[0]
-    x2, y2 = coords[1]
-    return [(floor(x1 * height), floor(y1 * width)), (ceil(x2 * height), ceil(y2 * width))]
-    
-
-def create_bbox(view: View, coordinates, box_type, time_point):
-    bbox = view.new_annotation(AnnotationTypes.BoundingBox)
-    bbox.add_property("coordinates", coordinates)
-    bbox.add_property("label", box_type)
-    bbox.add_property("timePoint", time_point)
-    return bbox
-
-
-def create_alignment(view: View, source, target) -> None:
-    alignment = view.new_annotation(AnnotationTypes.Alignment)
-    alignment.add_property("source", source)
-    alignment.add_property("target", target)
 
 
 class DoctrWrapper(ClamsApp):
@@ -61,83 +34,63 @@ class DoctrWrapper(ClamsApp):
     def _appmetadata(self):
         # using metadata.py
         pass
+
+    @staticmethod
+    def rel_coords_to_abs(coords: Tuple[Tuple[float, float]], width: int, height: int) -> Tuple[Tuple[int, int]]:
+        """
+        Simple conversion from relative coordinates (percentage) to absolute coordinates (pixel). 
+        Assumes the passed shape is a rectangle, represented by top-left and bottom-right corners, 
+        and compute floor and ceiling based on the geometry.
+        """
+        x1, y1 = coords[0]
+        x2, y2 = coords[1]
+        return (floor(x1 * height), floor(y1 * width)), (ceil(x2 * height), ceil(y2 * width))
     
-    class LingUnit(object):
-        """
-        A thin wrapper for LAPPS linguistic unit annotations that 
-        represent different geometric levels from DocTR OCR output.
-        """
-        def __init__(self, region: Annotation, document: Document):
-            self.region = region
-            self.region.add_property("document", document.id)
-            self.children = []
-
-        def add_child(self, sentence):
-            self.children.append(sentence)
-
-        def collect_targets(self):
-            self.region.add_property("targets", [child.region.id for child in self.children])
-
-    class Token:
-        """
-        Span annotation corresponding to a DocTR Word object. Start and end are character offsets in the text document.
-        """
-        def __init__(self, region: Annotation, document: Document, start: int, end: int):
-            self.region = region
-            self.region.add_property("document", document.id)
-            self.region.add_property("start", start)
-            self.region.add_property("end", end)
+    @staticmethod
+    def create_bbox(new_view: View, 
+                    coordinates: Tuple[Tuple[int, int]],
+                    timepoint_ann: Annotation, text_ann: Annotation):
+        bbox_ann = new_view.new_annotation(AnnotationTypes.BoundingBox, coordinates=coordinates, label="text")
+        new_view.new_annotation(AnnotationTypes.Alignment, source=timepoint_ann.id, target=bbox_ann.id)
+        new_view.new_annotation(AnnotationTypes.Alignment, source=text_ann.id, target=bbox_ann.id)
 
     def process_timepoint(self, representative: Annotation, new_view: View, video_doc: Document):
-        rep_frame_index = vdh.convert(representative.get("timePoint"), 
+        rep_frame_index = vdh.convert(representative.get("timePoint"),
                                       representative.get("timeUnit"), "frame", 
                                       video_doc.get("fps"))
         image: np.ndarray = vdh.extract_frames_as_images(video_doc, [rep_frame_index], as_PIL=False)[0]
+        h, w = image.shape[:2]
         result = self.reader([image])
         # assume only one page, as we are passing one image at a time
-        blocks = result.pages[0].blocks
+        text_content = result.render()
+        if not text_content:
+            return representative.get('timePoint'), None
         text_document: Document = new_view.new_textdocument(result.render())
+        td_id = text_document.id
+        new_view.new_annotation(AnnotationTypes.Alignment, source=representative.id, target=td_id)
 
-        h, w = image.shape[:2]
-        for block in blocks:
-            try:
-                self.process_block(block, new_view, text_document, representative, w, h)
-            except Exception as e:
-                self.logger.error(f"Error processing block: {e}")
-                continue
+        e = 0
+        for block in result.pages[0].blocks:
+            para_ann = new_view.new_annotation(Uri.PARAGRAPH, document=td_id, text=block.render())
+            self.create_bbox(new_view, self.rel_coords_to_abs(block.geometry, w, h), representative, para_ann)
+            target_sents = []
+            
+            for line in block.lines:
+                sent_ann = new_view.new_annotation(Uri.SENTENCE, document=td_id, text=line.render())
+                target_sents.append(sent_ann.id)
+                self.create_bbox(new_view, self.rel_coords_to_abs(line.geometry, w, h), representative, sent_ann)
+                target_tokens = []
+                
+                for word in line.words:
+                    s = text_content.find(word.value, e)
+                    e = s + len(word.value)
+                    token_ann = new_view.new_annotation(Uri.TOKEN, document=td_id, start=s, end=e, text=word.value)
+                    target_tokens.append(token_ann.id)
+                    self.create_bbox(new_view, self.rel_coords_to_abs(word.geometry, w, h), representative, token_ann)
+                sent_ann.add_property("targets", target_tokens)
+            para_ann.add_property("targets", target_sents)
 
-        return text_document, representative
-
-    def process_block(self, block, view, text_document, representative, img_width, img_height):
-        paragraph = self.LingUnit(view.new_annotation(at_type=Uri.PARAGRAPH), text_document)
-        paragraph_bb = create_bbox(view, rel_coords_to_abs(block.geometry, img_width, img_height), "text", representative.id)
-        create_alignment(view, paragraph.region.id, paragraph_bb.id)
-
-        for line in block.lines:
-            try:
-                sentence = self.process_line(line, view, text_document, representative, img_width, img_height)
-            except Exception as e:
-                self.logger.error(f"Error processing line: {e}")
-                continue
-            paragraph.add_child(sentence)
-        paragraph.collect_targets()
-
-    def process_line(self, line, view, text_document, representative, img_width, img_height):
-        sentence = self.LingUnit(view.new_annotation(at_type=Uri.SENTENCE), text_document)
-        sentence_bb = create_bbox(view, rel_coords_to_abs(line.geometry, img_width, img_height), "text", representative.id)
-        create_alignment(view, sentence.region.id, sentence_bb.id)
-
-        for word in line.words:
-            if word.confidence > 0.4:
-                start = text_document.text_value.find(word.value)
-                end = start + len(word.value)
-                token = self.Token(view.new_annotation(at_type=Uri.TOKEN), text_document, start, end)
-                token_bb = create_bbox(view, rel_coords_to_abs(word.geometry, img_width, img_height), "text", representative.id)
-                create_alignment(view, token.region.id, token_bb.id)
-                sentence.add_child(token)
-
-        sentence.collect_targets()
-        return sentence
+        return representative.get('timePoint'), text_content
 
     def _annotate(self, mmif: Mmif, **parameters) -> Mmif:
         if self.gpu:
@@ -149,6 +102,12 @@ class DoctrWrapper(ClamsApp):
 
         new_view: View = mmif.new_view()
         self.sign_view(new_view, parameters)
+        new_view.new_contain(DocumentTypes.TextDocument)
+        new_view.new_contain(AnnotationTypes.BoundingBox)
+        new_view.new_contain(AnnotationTypes.Alignment)
+        new_view.new_contain(Uri.PARAGRAPH)
+        new_view.new_contain(Uri.SENTENCE)
+        new_view.new_contain(Uri.TOKEN)
 
         with ThreadPoolExecutor() as executor:
             futures = []
@@ -163,13 +122,8 @@ class DoctrWrapper(ClamsApp):
                     pass
 
             for future in futures:
-                try:
-                    text_document, representative = future.result()
-                    self.logger.debug(text_document.get('text'))
-                    create_alignment(new_view, representative.id, text_document.id)
-                except Exception as e:
-                    self.logger.error(f"Error processing timeframe: {e}")
-                    continue
+                timestemp, text_content = future.result()
+                self.logger.debug(f'Processed timepoint: {timestemp}, recognized text: "{json.dumps(text_content)}"')
 
         return mmif
 
