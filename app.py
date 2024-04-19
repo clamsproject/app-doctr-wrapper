@@ -7,7 +7,7 @@ import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from math import floor, ceil
-from typing import Tuple
+from typing import Tuple, Sequence
 
 import numpy as np
 import torch
@@ -44,23 +44,29 @@ class DoctrWrapper(ClamsApp):
         pass
 
     @staticmethod
-    def rel_coords_to_abs(coords: Tuple[Tuple[float, float]], width: int, height: int) -> Tuple[Tuple[int, int]]:
+    def rel_coords_to_abs(coords: Sequence[Tuple[float, float]], width: int, height: int) -> Tuple[Tuple[int, int]]:
         """
         Simple conversion from relative coordinates (percentage) to absolute coordinates (pixel). 
         Assumes the passed shape is a rectangle, represented by top-left and bottom-right corners, 
         and compute floor and ceiling based on the geometry.
         """
-        x1, y1 = coords[0]
-        x2, y2 = coords[1]
-        return (floor(x1 * height), floor(y1 * width)), (ceil(x2 * height), ceil(y2 * width))
+        xs = [x for x, _ in coords]
+        ys = [y for _, y in coords]
+        x1, x2 = min(xs), max(xs)
+        y1, y2 = min(ys), max(ys)
+        return (floor(x1 * width), floor(y1 * height)), (ceil(x2 * width), ceil(y2 * height))
     
     @staticmethod
     def create_bbox(new_view: View, 
                     coordinates: Tuple[Tuple[int, int]],
                     timepoint_ann: Annotation, text_ann: Annotation):
         bbox_ann = new_view.new_annotation(AnnotationTypes.BoundingBox, coordinates=coordinates, label="text")
-        new_view.new_annotation(AnnotationTypes.Alignment, source=timepoint_ann.id, target=bbox_ann.id)
-        new_view.new_annotation(AnnotationTypes.Alignment, source=text_ann.id, target=bbox_ann.id)
+        for source_ann in [timepoint_ann, text_ann]:
+            if source_ann.parent != new_view.id:
+                source_id = source_ann.long_id
+            else:
+                source_id = source_ann.id
+            new_view.new_annotation(AnnotationTypes.Alignment, source=source_id, target=bbox_ann.id)
 
     def process_time_annotation(self, mmif: Mmif, representative: Annotation, new_view: View, video_doc: Document):
         if representative.at_type == AnnotationTypes.TimePoint:
@@ -85,7 +91,11 @@ class DoctrWrapper(ClamsApp):
             return timestamp, None
         text_document: Document = new_view.new_textdocument(result.render())
         td_id = text_document.id
-        new_view.new_annotation(AnnotationTypes.Alignment, source=representative.id, target=td_id)
+        if representative.parent != new_view.id:
+            source_id = representative.long_id
+        else:
+            source_id = representative.id
+        new_view.new_annotation(AnnotationTypes.Alignment, source=source_id, target=td_id)
 
         e = 0
         for block in result.pages[0].blocks:
