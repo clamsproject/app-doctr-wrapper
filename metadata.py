@@ -23,7 +23,13 @@ def appmetadata() -> AppMetadata:
     """
     metadata = AppMetadata(
         name="docTR Wrapper",
-        description="End to end OCR for extracting text from timeframes",
+        description='CLAMS app wraps the docTR, End-to-End OCR model, available at '
+                    'https://pypi.org/project/python-doctr . The model is capable of detecting text regions in the '
+                    'input image and recognizing text in the regions. The text-localized regions are organized '
+                    'hierarchically by the model into "pages" > "blocks" > "lines" > "words", and this CLAMS app '
+                    'translated into `TextDocument`, `Paragraphs`, `Sentence`, and `Token` annotations that represent '
+                    'recognized text contents, then aligned to `BoundingBox` annotations that represent the detected '
+                    'geometries.',
         app_license="MIT",
         identifier="doctr-wrapper",
         url="https://github.com/clamsproject/app-doctr-wrapper",
@@ -31,13 +37,29 @@ def appmetadata() -> AppMetadata:
         analyzer_license="Apache 2.0",
     )
     metadata.add_input(DocumentTypes.VideoDocument)
-    metadata.add_input(AnnotationTypes.TimeFrame)
+    in_tf = metadata.add_input(AnnotationTypes.TimeFrame, representatives='?')
+    in_tf.add_description('The Time frame annotation that represents the video segment to be processed. When '
+                          '`representatives` property is present, the app will process videos still frames at the '
+                          'underlying time point annotations that are referred to by the `representatives` property. '
+                          'Otherwise, the app will process the middle frame of the video segment.')
     metadata.add_output(DocumentTypes.TextDocument)
-    metadata.add_output(at_type=Uri.SENTENCE)
-    metadata.add_output(at_type=Uri.PARAGRAPH)
-    metadata.add_output(at_type=Uri.TOKEN)
-    metadata.add_output(AnnotationTypes.Alignment)
-    metadata.add_output(AnnotationTypes.BoundingBox)
+    out_sent = metadata.add_output(at_type=Uri.SENTENCE)
+    out_sent.add_description('Translation of the recognized "text lines" in the processed input images')
+    out_para = metadata.add_output(at_type=Uri.PARAGRAPH)
+    out_para.add_description('Translation of the recognized "text blocks" in the processed input images')
+    out_tkn = metadata.add_output(at_type=Uri.TOKEN)
+    out_tkn.add_description('Translation of the recognized "text words" in the processed input images')
+    out_ali = metadata.add_output(AnnotationTypes.Alignment)
+    out_ali.add_description('Alignments between 1) `TimePoint` <-> `TextDocument`, 2) `TimePoint` <-> '
+                            '`Token`/`Sentence`/`Paragraph`, 3) `BoundingBox` <-> `Token`/`Sentence`/`Paragraph`')
+    out_bbox = metadata.add_output(AnnotationTypes.BoundingBox)
+    out_bbox.add_description('Bounding boxes of the detected text regions in the input images. No corresponding box '
+                             'for the entire image (`TextDocument`) region')
+    
+    metadata.add_parameter(name='tfLabel', default=[], type='string', multivalued=True,
+                           description='The label of the TimeFrame annotation to be processed. By default (`[]`), all '
+                                       'TimeFrame annotations will be processed, regardless of their `label` property '
+                                       'values.')
 
     return metadata
 

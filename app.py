@@ -112,7 +112,8 @@ class DoctrWrapper(ClamsApp):
                 for word in line.words:
                     s = text_content.find(word.value, e)
                     e = s + len(word.value)
-                    token_ann = new_view.new_annotation(Uri.TOKEN, document=td_id, start=s, end=e, text=word.value)
+                    token_ann = new_view.new_annotation(Uri.TOKEN, document=td_id,
+                                                        start=s, end=e, text=word.value, word=word.value)
                     target_tokens.append(token_ann.id)
                     self.create_bbox(new_view, self.rel_coords_to_abs(word.geometry, w, h), representative, token_ann)
                 sent_ann.add_property("targets", target_tokens)
@@ -140,6 +141,15 @@ class DoctrWrapper(ClamsApp):
         with ThreadPoolExecutor() as executor:
             futures = []
             for timeframe in input_view.get_annotations(AnnotationTypes.TimeFrame):
+                if 'label' in timeframe:
+                    self.logger.debug(f'Found a time frame "{timeframe.id}" of label: "{timeframe.get("label")}"')
+                else:
+                    self.logger.debug(f'Found a time frame "{timeframe.id}" without label')
+                if parameters.get("tfLabel") and \
+                        'label' in timeframe and timeframe.get("label") not in parameters.get("tfLabel"):
+                    continue
+                else:
+                    self.logger.debug(f'Processing time frame "{timeframe.id}"')
                 for rep_id in timeframe.get("representatives"):
                     if Mmif.id_delimiter not in rep_id:
                         rep_id = f'{input_view.id}{Mmif.id_delimiter}{rep_id}'
