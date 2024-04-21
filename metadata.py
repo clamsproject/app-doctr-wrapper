@@ -22,7 +22,7 @@ def appmetadata() -> AppMetadata:
     :return: AppMetadata object holding all necessary information.
     """
     metadata = AppMetadata(
-        name="docTR Wrapper",
+        name="CLAMS docTR Wrapper",
         description='CLAMS app wraps the docTR, End-to-End OCR model, available at '
                     'https://pypi.org/project/python-doctr . The model is capable of detecting text regions in the '
                     'input image and recognizing text in the regions. The text-localized regions are organized '
@@ -30,7 +30,7 @@ def appmetadata() -> AppMetadata:
                     'translated into `TextDocument`, `Paragraphs`, `Sentence`, and `Token` annotations that represent '
                     'recognized text contents, then aligned to `BoundingBox` annotations that represent the detected '
                     'geometries.',
-        app_license="MIT",
+        app_license="Apache 2.0",
         identifier="doctr-wrapper",
         url="https://github.com/clamsproject/app-doctr-wrapper",
         analyzer_version='0.8.1',
