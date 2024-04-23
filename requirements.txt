@@ -1,5 +1,5 @@
 # Make sure clams-python version is explicitly specified, at least the lower bound
-clams-python==1.2.0
+clams-python==1.2.1
 mmif-python[cv]
 python-doctr[torch]==0.8.1
 torch>=2.*

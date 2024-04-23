@@ -23,17 +23,13 @@ def appmetadata() -> AppMetadata:
     """
     metadata = AppMetadata(
         name="CLAMS docTR Wrapper",
-        description='CLAMS app wraps the docTR, End-to-End OCR model, available at '
-                    'https://pypi.org/project/python-doctr . The model is capable of detecting text regions in the '
-                    'input image and recognizing text in the regions. The text-localized regions are organized '
+        description='CLAMS app wraps the [docTR, End-to-End OCR model](https://pypi.org/project/python-doctr). The '
+                    'model can detect text regions in the input image and recognize text in the regions (via parseq '
+                    'OCR model, only English is support at the moment). The text-localized regions are organized '
                     'hierarchically by the model into "pages" > "blocks" > "lines" > "words", and this CLAMS app '
                     'translates them into `TextDocument`, `Paragraphs`, `Sentence`, and `Token` annotations to '
-                    'represent recognized text contents, then aligns them to `BoundingBox` annotations that represent '
-                    'the detected geometries. This hierarchical structure is also represented in the `TextDocument` '
-                    'annotation output as two newlines (`\\n\\n`) between "paragraphs", one newline (`\\n`) between '
-                    'the "lines", and one space (" ") between the "words". For the text recognition, the model is '
-                    'internally configured to use the "parseq" recognition model, and only works with English text '
-                    'at the moment.',
+                    'represent recognized text contents. See descriptions for I/O types below  for details on how '
+                    'annotations are aligned to each other.',
         app_license="Apache 2.0",
         identifier="doctr-wrapper",
         url="https://github.com/clamsproject/app-doctr-wrapper",
