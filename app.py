@@ -11,13 +11,14 @@ from typing import Tuple, Sequence
 
 import numpy as np
 import torch
+import torch.multiprocessing as mp
 from clams import ClamsApp, Restifier
 from doctr.models import ocr_predictor
 from lapps.discriminators import Uri
 from mmif import Mmif, View, Annotation, Document, AnnotationTypes, DocumentTypes
 from mmif.utils import video_document_helper as vdh
 
-
+mp.set_start_method('spawn', force=True)  # Force spawn to avoid issues with CUDA
 class DoctrWrapper(ClamsApp):
 
     def __init__(self):
