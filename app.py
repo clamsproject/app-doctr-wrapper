@@ -89,7 +89,7 @@ class DoctrWrapper(ClamsApp):
         text_content = result.render()
         if not text_content:
             return timestamp, None
-        text_document: Document = new_view.new_textdocument(result.render())
+        text_document: Document = new_view.new_textdocument(text=text_content)
         td_id = text_document.id
         if representative.parent != new_view.id:
             source_id = representative.long_id
@@ -141,12 +141,12 @@ class DoctrWrapper(ClamsApp):
         with ThreadPoolExecutor() as executor:
             futures = []
             for timeframe in input_view.get_annotations(AnnotationTypes.TimeFrame):
-                if 'label' in timeframe:
-                    self.logger.debug(f'Found a time frame "{timeframe.id}" of label: "{timeframe.get("label")}"')
-                else:
-                    self.logger.debug(f'Found a time frame "{timeframe.id}" without label')
-                if parameters.get("tfLabel") and \
-                        'label' in timeframe and timeframe.get("label") not in parameters.get("tfLabel"):
+                if 'label' not in timeframe:
+                    self.logger.debug(f'Found a time frame "{timeframe.id}" without label, skipping.')
+                    continue
+                self.logger.debug(f'Found a time frame "{timeframe.id}" of label: "{timeframe.get("label")}"')
+                # first condition will be false if "tfLabel" is not set
+                if parameters.get("tfLabel") and timeframe.get("label") not in parameters.get("tfLabel"):
                     continue
                 else:
                     self.logger.debug(f'Processing time frame "{timeframe.id}"')
@@ -166,6 +166,8 @@ class DoctrWrapper(ClamsApp):
 
         return mmif
 
+def get_app():
+    return DoctrWrapper()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -177,7 +179,7 @@ if __name__ == "__main__":
     parsed_args = parser.parse_args()
 
     # create the app instance
-    app = DoctrWrapper()
+    app = get_app()
 
     http_app = Restifier(app, port=int(parsed_args.port))
     # for running the application in production mode

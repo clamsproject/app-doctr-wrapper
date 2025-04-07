@@ -6,9 +6,8 @@ Wrapper for [docTR](https://github.com/mindee/doctr) end-to-end text detection a
 
 ## Input
 
-The wrapper takes a [`VideoDocument`]('https://mmif.clams.ai/vocabulary/VideoDocument/v1/') with SWT 
-[`TimeFrame`]('https://mmif.clams.ai/vocabulary/TimeFrame/v3/') annotations. The app specifically 
-uses the representative `TimePoint` annotations from SWT v4 `TimeFrame` annotations to extract specific frames for OCR
+The wrapper takes a [`VideoDocument`]('https://mmif.clams.ai/vocabulary/VideoDocument/v1/') with [`TimeFrame`]('https://mmif.clams.ai/vocabulary/TimeFrame/v3/') annotations with `label` property (for example, from [SWT app](https://github.com/clamsproject/app-swt-detection) that classifies scenes). 
+See `input` section of the app metadata for more details.
 
 ## docTR Structured Output
 
@@ -40,7 +39,9 @@ lapps `Paragraph` `Sentence` and `Token` annotations corresponding to the `Block
 
 ## User instruction
 
-General user instructions for CLAMS apps is available at [CLAMS Apps documentation](https://apps.clams.ai/clamsapp).
+General user instructions for CLAMS apps are available at [CLAMS Apps documentation](https://apps.clams.ai/clamsapp).
+
+Below is a list of additional information specific to this app.
 
 ### System requirements
 
@@ -49,4 +50,4 @@ General user instructions for CLAMS apps is available at [CLAMS Apps documentati
 
 ### Configurable runtime parameter
 
-For the full list of parameters, please refer to the app metadata from [CLAMS App Directory](https://apps.clams.ai) or [`metadata.py`](metadata.py) file in this repository.
+For the full list of parameters, please refer to the app metadata from the [CLAMS App Directory](https://apps.clams.ai) or the [`metadata.py`](metadata.py) file in this repository.

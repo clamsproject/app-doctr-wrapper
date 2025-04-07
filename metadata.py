@@ -37,11 +37,12 @@ def appmetadata() -> AppMetadata:
         analyzer_license="Apache 2.0",
     )
     metadata.add_input(DocumentTypes.VideoDocument)
-    in_tf = metadata.add_input(AnnotationTypes.TimeFrame, representatives='?')
-    in_tf.add_description('The Time frame annotation that represents the video segment to be processed. When '
+    in_tf = metadata.add_input(AnnotationTypes.TimeFrame, representatives='?', label='*')
+    in_tf.add_description('The _labeled_ TimeFrame annotation that represents the video segment to be processed. When '
                           '`representatives` property is present, the app will process videos still frames at the '
                           'underlying time point annotations that are referred to by the `representatives` property. '
-                          'Otherwise, the app will process the middle frame of the video segment.')
+                          'Otherwise, the app will process the middle frame of the video segment. Generic TimeFrames '
+                          'with no `label` property will not be processed.')
     out_td = metadata.add_output(DocumentTypes.TextDocument, **{'@lang': 'en'})
     out_td.add_description('Fully serialized text content of the recognized text in the input images. Serialization is'
                            'done by concatenating `text` values of `Paragraph` annotations with two newline characters.')
