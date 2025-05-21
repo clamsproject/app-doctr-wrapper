@@ -5,7 +5,6 @@ wrapper for DocTR end to end OCR
 import argparse
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from math import floor, ceil
 from typing import Tuple, Sequence
 
@@ -44,16 +43,17 @@ class DoctrWrapper(ClamsApp):
         pass
 
     @staticmethod
-    def rel_coords_to_abs(coords: Sequence[Tuple[float, float]], width: int, height: int) -> Tuple[Tuple[int, int]]:
+    def rel_coords_to_abs(coords: Sequence[Tuple[float, float]], width: int, height: int) \
+            -> Tuple[Tuple[int, int], Tuple[int, int]]:
         """
         Simple conversion from relative coordinates (percentage) to absolute coordinates (pixel). 
         Assumes the passed shape is a rectangle, represented by top-left and bottom-right corners, 
         and compute floor and ceiling based on the geometry.
         """
-        xs = [x for x, _ in coords]
-        ys = [y for _, y in coords]
-        x1, x2 = min(xs), max(xs)
-        y1, y2 = min(ys), max(ys)
+        xs = list(sorted(x for x, _ in coords))
+        ys = list(sorted(y for _, y in coords))
+        x1, x2 = xs[0], xs[-1]
+        y1, y2 = ys[0], ys[-1]
         return (floor(x1 * width), floor(y1 * height)), (ceil(x2 * width), ceil(y2 * height))
     
     @staticmethod
@@ -138,31 +138,26 @@ class DoctrWrapper(ClamsApp):
         new_view.new_contain(Uri.SENTENCE)
         new_view.new_contain(Uri.TOKEN)
 
-        with ThreadPoolExecutor() as executor:
-            futures = []
-            for timeframe in input_view.get_annotations(AnnotationTypes.TimeFrame):
-                if 'label' not in timeframe:
-                    self.logger.debug(f'Found a time frame "{timeframe.id}" without label, skipping.')
-                    continue
-                self.logger.debug(f'Found a time frame "{timeframe.id}" of label: "{timeframe.get("label")}"')
-                # first condition will be false if "tfLabel" is not set
-                if parameters.get("tfLabel") and timeframe.get("label") not in parameters.get("tfLabel"):
-                    continue
-                else:
-                    self.logger.debug(f'Processing time frame "{timeframe.id}"')
-                for rep_id in timeframe.get("representatives"):
-                    if Mmif.id_delimiter not in rep_id:
-                        rep_id = f'{input_view.id}{Mmif.id_delimiter}{rep_id}'
-                    representative = mmif[rep_id]
-                    futures.append(executor.submit(self.process_time_annotation, mmif, representative, new_view, video_doc))
-                if len(futures) == 0:
-                    # meaning "representatives" was not present, so alternatively, just process the middle frame
-                    futures.append(executor.submit(self.process_time_annotation, mmif, timeframe, new_view, video_doc))
-                    pass
-
-            for future in futures:
-                timestamp, text_content = future.result()
-                self.logger.debug(f'Processed timepoint: {timestamp} ms, recognized text: "{json.dumps(text_content)}"')
+        tr_results = []
+        for timeframe in input_view.get_annotations(AnnotationTypes.TimeFrame):
+            if 'label' not in timeframe:
+                self.logger.debug(f'Found a time frame "{timeframe.id}" without label, skipping.')
+                continue
+            self.logger.debug(f'Found a time frame "{timeframe.id}" of label: "{timeframe.get("label")}"')
+            # first condition will be false if "tfLabel" is not set
+            if parameters.get("tfLabel") and timeframe.get("label") not in parameters.get("tfLabel"):
+                continue
+            else:
+                self.logger.debug(f'Processing time frame "{timeframe.id}"')
+            for rep_id in timeframe.get("representatives"):
+                if Mmif.id_delimiter not in rep_id:
+                    rep_id = f'{input_view.id}{Mmif.id_delimiter}{rep_id}'
+                representative = mmif[rep_id]
+                timestamp, text_content = self.process_time_annotation(mmif, representative, new_view, video_doc)
+            if len(tr_results) == 0:
+                # meaning "representatives" was not present, so alternatively, just process the middle frame
+                timestamp, text_content = self.process_time_annotation(mmif, timeframe, new_view, video_doc)
+            self.logger.debug(f'Processed timepoint: {timestamp} ms, recognized text: "{json.dumps(text_content)}"')
 
         return mmif
 
