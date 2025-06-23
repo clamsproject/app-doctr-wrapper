@@ -128,7 +128,7 @@ class DoctrWrapper(ClamsApp):
         new_view.new_contain(Uri.SENTENCE)
         new_view.new_contain(Uri.TOKEN)
 
-        tr_results = []
+        text_content = None
         for timeframe in input_view.get_annotations(AnnotationTypes.TimeFrame):
             if 'label' not in timeframe:
                 self.logger.debug(f'Found a time frame "{timeframe.long_id}" without label, skipping.')
@@ -144,7 +144,7 @@ class DoctrWrapper(ClamsApp):
                     rep_id = f'{input_view.id}{Mmif.id_delimiter}{rep_id}'
                 representative = mmif[rep_id]
                 timestamp, text_content = self.process_time_annotation(mmif, representative, new_view, video_doc)
-            if len(tr_results) == 0:
+            if text_content is None:
                 # meaning "representatives" was not present, so alternatively, just process the middle frame
                 timestamp, text_content = self.process_time_annotation(mmif, timeframe, new_view, video_doc)
             self.logger.debug(f'Processed timepoint: {timestamp} ms, recognized text: "{json.dumps(text_content)}"')
