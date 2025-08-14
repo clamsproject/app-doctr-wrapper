@@ -12,7 +12,6 @@ import numpy as np
 import torch
 from clams import ClamsApp, Restifier
 from doctr.models import ocr_predictor
-from lapps.discriminators import Uri
 from mmif import Mmif, View, Annotation, Document, AnnotationTypes, DocumentTypes
 from mmif.utils import video_document_helper as vdh
 
@@ -62,20 +61,20 @@ class DoctrWrapper(ClamsApp):
                     timepoint_ann: Annotation, text_ann: Annotation):
         bbox_ann = new_view.new_annotation(AnnotationTypes.BoundingBox, coordinates=coordinates, label="text")
         for source_ann in [timepoint_ann, text_ann]:
-            source_id = source_ann.long_id
-            new_view.new_annotation(AnnotationTypes.Alignment, source=source_id, target=bbox_ann.long_id)
+            source_id = source_ann.id
+            new_view.new_annotation(AnnotationTypes.Alignment, source=source_id, target=bbox_ann.id)
 
     def process_time_annotation(self, mmif: Mmif, representative: Annotation, new_view: View, video_doc: Document):
         if representative.at_type == AnnotationTypes.TimePoint:
             rep_frame_index = vdh.convert(representative.get("timePoint"),
-                                          representative.get("timeUnit"), "frame", 
+                                          representative.get("timeUnit", "ms"), "frame", 
                                           video_doc.get("fps"))
             image: np.ndarray = vdh.extract_frames_as_images(video_doc, [rep_frame_index], as_PIL=False)[0]
             timestamp = vdh.convert(representative.get("timePoint"),
-                                    representative.get("timeUnit"), "ms", video_doc.get("fps"))
+                                    representative.get("timeUnit", "ms"), "ms", video_doc.get("fps"))
         elif representative.at_type == AnnotationTypes.TimeFrame:
-            image: np.ndarray = vdh.extract_mid_frame(mmif, representative, as_PIL=False)
-            timestamp = vdh.convert(vdh.get_mid_framenum(mmif, representative), 
+            image: np.ndarray = vdh.extract_representative_frame(mmif, representative, as_PIL=False, first_only=True)
+            timestamp = vdh.convert(vdh.get_representative_framenum(mmif, representative), 
                                     'f', 'ms', video_doc.get("fps"))
         else:
             self.logger.error(f"Representative annotation type {representative.at_type} is not supported.")
@@ -87,28 +86,28 @@ class DoctrWrapper(ClamsApp):
         if not text_content:
             return timestamp, None
         text_document: Document = new_view.new_textdocument(text=text_content)
-        td_id = text_document.long_id
-        source_id = representative.long_id
+        td_id = text_document.id
+        source_id = representative.id
         new_view.new_annotation(AnnotationTypes.Alignment, source=source_id, target=td_id)
 
         e = 0
         for block in result.pages[0].blocks:
-            para_ann = new_view.new_annotation(Uri.PARAGRAPH, document=td_id, text=block.render())
+            para_ann = new_view.new_annotation(AnnotationTypes.Paragraph, document=td_id, text=block.render())
             self.create_bbox(new_view, self.rel_coords_to_abs(block.geometry, w, h), representative, para_ann)
             target_sents = []
             
             for line in block.lines:
-                sent_ann = new_view.new_annotation(Uri.SENTENCE, document=td_id, text=line.render())
-                target_sents.append(sent_ann.long_id)
+                sent_ann = new_view.new_annotation(AnnotationTypes.Sentence, document=td_id, text=line.render())
+                target_sents.append(sent_ann.id)
                 self.create_bbox(new_view, self.rel_coords_to_abs(line.geometry, w, h), representative, sent_ann)
                 target_tokens = []
                 
                 for word in line.words:
                     s = text_content.find(word.value, e)
                     e = s + len(word.value)
-                    token_ann = new_view.new_annotation(Uri.TOKEN, document=td_id,
-                                                        start=s, end=e, text=word.value, word=word.value)
-                    target_tokens.append(token_ann.long_id)
+                    token_ann = new_view.new_annotation(AnnotationTypes.Token, document=td_id,
+                                                        start=s, end=e, text=word.value)
+                    target_tokens.append(token_ann.id)
                     self.create_bbox(new_view, self.rel_coords_to_abs(word.geometry, w, h), representative, token_ann)
                 sent_ann.add_property("targets", target_tokens)
             para_ann.add_property("targets", target_sents)
@@ -117,28 +116,28 @@ class DoctrWrapper(ClamsApp):
 
     def _annotate(self, mmif: Mmif, **parameters) -> Mmif:
         video_doc: Document = mmif.get_documents_by_type(DocumentTypes.VideoDocument)[0]
-        input_view: View = mmif.get_views_for_document(video_doc.long_id)[-1]
+        input_view: View = mmif.get_views_for_document(video_doc.id)[-1]
 
         new_view: View = mmif.new_view()
         self.sign_view(new_view, parameters)
         new_view.new_contain(DocumentTypes.TextDocument)
         new_view.new_contain(AnnotationTypes.BoundingBox)
         new_view.new_contain(AnnotationTypes.Alignment)
-        new_view.new_contain(Uri.PARAGRAPH)
-        new_view.new_contain(Uri.SENTENCE)
-        new_view.new_contain(Uri.TOKEN)
+        new_view.new_contain(AnnotationTypes.Paragraph)
+        new_view.new_contain(AnnotationTypes.Sentence)
+        new_view.new_contain(AnnotationTypes.Token)
 
         text_content = None
         for timeframe in input_view.get_annotations(AnnotationTypes.TimeFrame):
             if 'label' not in timeframe:
-                self.logger.debug(f'Found a time frame "{timeframe.long_id}" without label, skipping.')
+                self.logger.debug(f'Found a time frame "{timeframe.id}" without label, skipping.')
                 continue
-            self.logger.debug(f'Found a time frame "{timeframe.long_id}" of label: "{timeframe.get("label")}"')
+            self.logger.debug(f'Found a time frame "{timeframe.id}" of label: "{timeframe.get("label")}"')
             # first condition will be false if "tfLabel" is not set
             if parameters.get("tfLabel") and timeframe.get("label") not in parameters.get("tfLabel"):
                 continue
             else:
-                self.logger.debug(f'Processing time frame "{timeframe.long_id}"')
+                self.logger.debug(f'Processing time frame "{timeframe.id}"')
             for rep_id in timeframe.get("representatives"):
                 if Mmif.id_delimiter not in rep_id:
                     rep_id = f'{input_view.id}{Mmif.id_delimiter}{rep_id}'
